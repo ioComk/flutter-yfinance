@@ -5,7 +5,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(const StockApp());
@@ -37,18 +39,26 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
+  static const String _watchlistSymbolsKey = 'watchlist_symbols_v1';
+  static const String _watchlistOrderKey = 'watchlist_order_v1';
+  static const List<String> _defaultWatchlist = <String>['AAPL', 'MSFT'];
+
   final YahooFinanceService _service = YahooFinanceService();
-  final List<String> _watchlist = <String>['AAPL', 'MSFT'];
+  final List<String> _watchlist = <String>[..._defaultWatchlist];
   final Map<String, QuoteSnapshot> _quotes = <String, QuoteSnapshot>{};
   Timer? _refreshTimer;
+  bool _isEditMode = false;
+  bool _isPersistReady = false;
+  bool _saveInProgress = false;
   bool _loading = true;
   String? _error;
   DateTime? _lastUpdatedAt;
+  DateTime? _lastPersistAt;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_refreshAll());
+    unawaited(_initializeDashboard());
     _refreshTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       unawaited(_refreshAll());
     });
@@ -58,6 +68,108 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _initializeDashboard() async {
+    await _loadWatchlistFromStorage();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isPersistReady = true;
+    });
+    await _refreshAll();
+  }
+
+  Future<void> _loadWatchlistFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final storedOrder = prefs.getStringList(_watchlistOrderKey);
+      final storedSymbols = prefs.getStringList(_watchlistSymbolsKey);
+      final source = storedOrder ?? storedSymbols;
+      if (source == null || source.isEmpty) {
+        return;
+      }
+
+      final sanitized = <String>[];
+      for (final symbol in source) {
+        final normalized = symbol.trim().toUpperCase();
+        if (normalized.isEmpty || sanitized.contains(normalized)) {
+          continue;
+        }
+        sanitized.add(normalized);
+      }
+
+      if (sanitized.isEmpty || !mounted) {
+        return;
+      }
+
+      setState(() {
+        _watchlist
+          ..clear()
+          ..addAll(sanitized);
+        _lastPersistAt = DateTime.now();
+      });
+    } catch (_) {
+      // In test environments, plugin channels may be unavailable.
+    }
+  }
+
+  Future<void> _saveWatchlistToStorage() async {
+    if (!_isPersistReady) {
+      return;
+    }
+
+    final symbols = List<String>.from(_watchlist);
+    if (mounted) {
+      setState(() {
+        _saveInProgress = true;
+      });
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_watchlistSymbolsKey, symbols);
+      await prefs.setStringList(_watchlistOrderKey, symbols);
+
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _saveInProgress = false;
+        _lastPersistAt = DateTime.now();
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _saveInProgress = false;
+      });
+    }
+  }
+
+  void _toggleEditMode() {
+    setState(() {
+      _isEditMode = !_isEditMode;
+    });
+  }
+
+  void _reorderWatchlist(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    if (oldIndex == newIndex) {
+      return;
+    }
+
+    setState(() {
+      final symbol = _watchlist.removeAt(oldIndex);
+      _watchlist.insert(newIndex, symbol);
+    });
+
+    unawaited(HapticFeedback.selectionClick());
+    unawaited(_saveWatchlistToStorage());
   }
 
   Future<void> _refreshAll() async {
@@ -99,13 +211,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (context) => AddSymbolSheet(service: _service),
     );
 
-    if (added == null || added.isEmpty || _watchlist.contains(added)) {
+    final normalized = added?.trim().toUpperCase();
+    if (normalized == null ||
+        normalized.isEmpty ||
+        _watchlist.contains(normalized)) {
       return;
     }
 
     setState(() {
-      _watchlist.add(added);
+      _watchlist.add(normalized);
     });
+    unawaited(_saveWatchlistToStorage());
     await _refreshAll();
   }
 
@@ -114,6 +230,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _watchlist.remove(symbol);
       _quotes.remove(symbol);
     });
+    unawaited(_saveWatchlistToStorage());
   }
 
   @override
@@ -135,8 +252,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: _TopHeader(
                       itemCount: _watchlist.length,
                       lastUpdatedAt: _lastUpdatedAt,
+                      lastPersistAt: _lastPersistAt,
                       loading: _loading,
+                      isEditMode: _isEditMode,
+                      saveInProgress: _saveInProgress,
+                      isPersistReady: _isPersistReady,
                       onRefresh: () => unawaited(_refreshAll()),
+                      onToggleEdit: _toggleEditMode,
                     ),
                   ),
                 ),
@@ -173,33 +295,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   )
                 else
-                  SliverList.builder(
-                    itemCount: _watchlist.length,
-                    itemBuilder: (context, index) {
-                      final symbol = _watchlist[index];
-                      final quote = _quotes[symbol];
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                        child: QuoteGlassCard(
-                          symbol: symbol,
-                          quote: quote,
-                          onRemove: () => _removeSymbol(symbol),
-                          onTap: quote == null
-                              ? null
-                              : () {
-                                  Navigator.of(context).push(
-                                    CupertinoPageRoute<void>(
-                                      builder: (_) => CandleChartScreen(
-                                        symbol: quote.symbol,
-                                        service: _service,
-                                      ),
-                                    ),
-                                  );
-                                },
+                  _isEditMode
+                      ? SliverReorderableList(
+                          itemCount: _watchlist.length,
+                          onReorder: _reorderWatchlist,
+                          proxyDecorator: (child, index, animation) {
+                            return AnimatedBuilder(
+                              animation: animation,
+                              builder: (context, _) {
+                                final t = Curves.easeOut.transform(
+                                  animation.value,
+                                );
+                                final scale =
+                                    ui.lerpDouble(1.0, 1.02, t) ?? 1.0;
+                                return Transform.scale(
+                                  scale: scale,
+                                  child: Opacity(
+                                    opacity: ui.lerpDouble(0.9, 1.0, t) ?? 1.0,
+                                    child: child,
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                          itemBuilder: (context, index) {
+                            final symbol = _watchlist[index];
+                            final quote = _quotes[symbol];
+                            return Padding(
+                              key: ValueKey<String>(symbol),
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                              child: QuoteGlassCard(
+                                symbol: symbol,
+                                quote: quote,
+                                isEditMode: true,
+                                showDragHandle: true,
+                                dragHandle: ReorderableDragStartListener(
+                                  index: index,
+                                  child: const _ReorderHandle(),
+                                ),
+                                onRemove: () => _removeSymbol(symbol),
+                                onTap: null,
+                              ),
+                            );
+                          },
+                        )
+                      : SliverList.builder(
+                          itemCount: _watchlist.length,
+                          itemBuilder: (context, index) {
+                            final symbol = _watchlist[index];
+                            final quote = _quotes[symbol];
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                              child: QuoteGlassCard(
+                                symbol: symbol,
+                                quote: quote,
+                                isEditMode: false,
+                                showDragHandle: false,
+                                onRemove: () => _removeSymbol(symbol),
+                                onTap: quote == null
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).push(
+                                          CupertinoPageRoute<void>(
+                                            builder: (_) => CandleChartScreen(
+                                              symbol: quote.symbol,
+                                              service: _service,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
                 const SliverToBoxAdapter(child: SizedBox(height: 84)),
               ],
             ),
@@ -239,20 +407,37 @@ class _TopHeader extends StatelessWidget {
   const _TopHeader({
     required this.itemCount,
     required this.lastUpdatedAt,
+    required this.lastPersistAt,
     required this.loading,
+    required this.isEditMode,
+    required this.saveInProgress,
+    required this.isPersistReady,
     required this.onRefresh,
+    required this.onToggleEdit,
   });
 
   final int itemCount;
   final DateTime? lastUpdatedAt;
+  final DateTime? lastPersistAt;
   final bool loading;
+  final bool isEditMode;
+  final bool saveInProgress;
+  final bool isPersistReady;
   final VoidCallback onRefresh;
+  final VoidCallback onToggleEdit;
 
   @override
   Widget build(BuildContext context) {
     final updatedText = lastUpdatedAt == null
         ? '未更新'
         : '${lastUpdatedAt!.hour.toString().padLeft(2, '0')}:${lastUpdatedAt!.minute.toString().padLeft(2, '0')}';
+    final persistText = !isPersistReady
+        ? '準備中'
+        : saveInProgress
+        ? '保存中'
+        : lastPersistAt == null
+        ? '未保存'
+        : '保存済み';
 
     return LiquidGlassSurface(
       padding: const EdgeInsets.all(16),
@@ -276,7 +461,13 @@ class _TopHeader extends StatelessWidget {
               _StatPill(label: '銘柄数', value: '$itemCount'),
               const SizedBox(width: 10),
               _StatPill(label: '最終更新', value: updatedText),
-              const Spacer(),
+              const SizedBox(width: 10),
+              _StatPill(label: '並び順', value: persistText),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
               CupertinoButton(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
@@ -287,6 +478,21 @@ class _TopHeader extends StatelessWidget {
                 child: loading
                     ? const CupertinoActivityIndicator()
                     : const Icon(CupertinoIcons.refresh, size: 18),
+              ),
+              const SizedBox(width: 10),
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                color: isEditMode
+                    ? CupertinoColors.systemBlue.withValues(alpha: 0.3)
+                    : CupertinoColors.systemGrey.withValues(alpha: 0.24),
+                onPressed: onToggleEdit,
+                child: Text(
+                  isEditMode ? '完了' : '編集',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
               ),
             ],
           ),
@@ -327,17 +533,44 @@ class _StatPill extends StatelessWidget {
   }
 }
 
+class _ReorderHandle extends StatelessWidget {
+  const _ReorderHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: CupertinoColors.systemGrey.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: const Icon(
+        CupertinoIcons.line_horizontal_3,
+        size: 18,
+        color: CupertinoColors.systemGrey2,
+      ),
+    );
+  }
+}
+
 class QuoteGlassCard extends StatelessWidget {
   const QuoteGlassCard({
     required this.symbol,
     required this.quote,
+    required this.isEditMode,
+    required this.showDragHandle,
     required this.onRemove,
     required this.onTap,
+    this.dragHandle,
     super.key,
-  });
+  }) : assert(!showDragHandle || dragHandle != null);
 
   final String symbol;
   final QuoteSnapshot? quote;
+  final bool isEditMode;
+  final bool showDragHandle;
+  final Widget? dragHandle;
   final VoidCallback onRemove;
   final VoidCallback? onTap;
 
@@ -353,7 +586,7 @@ class QuoteGlassCard extends StatelessWidget {
       onTap: onTap,
       child: LiquidGlassSurface(
         padding: const EdgeInsets.all(14),
-        tint: trendColor.withValues(alpha: 0.08),
+        tint: trendColor.withValues(alpha: isEditMode ? 0.14 : 0.08),
         child: Row(
           children: [
             Container(
@@ -391,6 +624,17 @@ class QuoteGlassCard extends StatelessWidget {
                           : trendColor,
                     ),
                   ),
+                  if (isEditMode)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'ドラッグして並び替え',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -411,6 +655,7 @@ class QuoteGlassCard extends StatelessWidget {
                 color: CupertinoColors.systemGrey,
               ),
             ),
+            if (showDragHandle) ...[const SizedBox(width: 4), dragHandle!],
           ],
         ),
       ),
