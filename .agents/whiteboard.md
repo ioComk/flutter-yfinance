@@ -13,11 +13,13 @@
 
 - 2026-02-19 | Main Agent | iOS UI/UXを優先し、Androidは当面動作保証を優先する
 - 2026-02-19 | Main Agent | Lint + GitHub Actions CI（format/analyze/test）を導入する
+- 2026-02-20 | Main Agent | ダッシュボードUIを「ミニマル + スタイリッシュ」方針へ更新（背景演出を抑制し、カード/配色を統一）
 
 ## Tech Notes
 
 - 2026-02-19 | Main Agent | Flutter 3.41.1 / Dart 3.11.0 / Xcode 26.2 / CocoaPods 1.16.2
 - 2026-02-19 | Main Agent | iOSシミュレータ確認済み（`flutter devices` で検出）
+- 2026-02-20 | Main Agent | `dart format --output=none --set-exit-if-changed .` / `flutter analyze` / `flutter test` を実行し全て成功
 
 ## Open Questions
 

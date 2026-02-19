@@ -13,6 +13,18 @@ void main() {
   runApp(const StockApp());
 }
 
+class _AppPalette {
+  const _AppPalette._();
+
+  static const Color backgroundTop = Color(0xFF0E1016);
+  static const Color backgroundBottom = Color(0xFF171B24);
+  static const Color card = Color(0xFF1D2430);
+  static const Color cardElevated = Color(0xFF252E3D);
+  static const Color border = Color(0x33FFFFFF);
+  static const Color textMuted = Color(0xFF9DA7B7);
+  static const Color accent = Color(0xFF63D4FF);
+}
+
 class StockApp extends StatelessWidget {
   const StockApp({super.key});
 
@@ -23,8 +35,24 @@ class StockApp extends StatelessWidget {
       title: 'Liquid Stocks',
       theme: const CupertinoThemeData(
         brightness: Brightness.dark,
-        primaryColor: CupertinoColors.systemBlue,
-        scaffoldBackgroundColor: Color(0xFF090E19),
+        primaryColor: _AppPalette.accent,
+        scaffoldBackgroundColor: _AppPalette.backgroundBottom,
+        barBackgroundColor: _AppPalette.backgroundBottom,
+        textTheme: CupertinoTextThemeData(
+          textStyle: TextStyle(color: CupertinoColors.white),
+          navTitleTextStyle: TextStyle(
+            color: CupertinoColors.white,
+            fontWeight: FontWeight.w600,
+          ),
+          navLargeTitleTextStyle: TextStyle(
+            color: CupertinoColors.white,
+            fontWeight: FontWeight.w700,
+          ),
+          actionTextStyle: TextStyle(
+            color: _AppPalette.accent,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
       home: const DashboardScreen(),
     );
@@ -285,12 +313,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   )
                 else if (_watchlist.isEmpty)
-                  const SliverFillRemaining(
+                  SliverFillRemaining(
                     hasScrollBody: false,
                     child: Center(
                       child: Text(
                         '銘柄を追加してください',
-                        style: TextStyle(color: CupertinoColors.systemGrey),
+                        style: TextStyle(
+                          color: _AppPalette.textMuted,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
                   )
@@ -380,16 +411,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
               top: false,
               child: GestureDetector(
                 onTap: _openAddSheet,
-                child: const LiquidGlassSurface(
-                  padding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                  child: Row(
+                child: LiquidGlassSurface(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  tint: _AppPalette.cardElevated,
+                  child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(CupertinoIcons.add_circled_solid, size: 20),
+                      Icon(
+                        CupertinoIcons.add_circled_solid,
+                        size: 20,
+                        color: _AppPalette.accent,
+                      ),
                       SizedBox(width: 8),
                       Text(
                         '銘柄をダッシュボードに追加',
-                        style: TextStyle(fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.1,
+                        ),
                       ),
                     ],
                   ),
@@ -440,58 +482,76 @@ class _TopHeader extends StatelessWidget {
         : '保存済み';
 
     return LiquidGlassSurface(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
+      tint: _AppPalette.cardElevated,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
             'Liquid Stocks',
-            style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'iOS First Dashboard • 1分自動更新',
             style: TextStyle(
-              color: CupertinoColors.systemGrey.withValues(alpha: 0.8),
+              fontSize: 30,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.3,
             ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Focused Watchlist • 1分自動更新',
+            style: TextStyle(
+              color: _AppPalette.textMuted.withValues(alpha: 0.95),
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.1,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _StatPill(label: '銘柄数', value: '$itemCount'),
+              _StatPill(label: '最終更新', value: updatedText),
+              _StatPill(label: '並び順', value: persistText),
+            ],
           ),
           const SizedBox(height: 12),
           Row(
             children: [
-              _StatPill(label: '銘柄数', value: '$itemCount'),
-              const SizedBox(width: 10),
-              _StatPill(label: '最終更新', value: updatedText),
-              const SizedBox(width: 10),
-              _StatPill(label: '並び順', value: persistText),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
               CupertinoButton(
+                minimumSize: Size.zero,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
+                  horizontal: 14,
+                  vertical: 8,
                 ),
-                color: CupertinoColors.systemBlue.withValues(alpha: 0.25),
+                color: _AppPalette.card,
                 onPressed: loading ? null : onRefresh,
                 child: loading
-                    ? const CupertinoActivityIndicator()
-                    : const Icon(CupertinoIcons.refresh, size: 18),
+                    ? const CupertinoActivityIndicator(radius: 8)
+                    : const Icon(
+                        CupertinoIcons.refresh,
+                        size: 18,
+                        color: _AppPalette.accent,
+                      ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               CupertinoButton(
+                minimumSize: Size.zero,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 14,
                   vertical: 8,
                 ),
                 color: isEditMode
-                    ? CupertinoColors.systemBlue.withValues(alpha: 0.3)
-                    : CupertinoColors.systemGrey.withValues(alpha: 0.24),
+                    ? _AppPalette.accent.withValues(alpha: 0.22)
+                    : _AppPalette.card,
                 onPressed: onToggleEdit,
                 child: Text(
                   isEditMode ? '完了' : '編集',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: isEditMode
+                        ? _AppPalette.accent
+                        : CupertinoColors.white,
+                  ),
                 ),
               ),
             ],
@@ -513,8 +573,9 @@ class _StatPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: CupertinoColors.systemGrey.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(14),
+        color: _AppPalette.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _AppPalette.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,10 +584,14 @@ class _StatPill extends StatelessWidget {
             label,
             style: TextStyle(
               fontSize: 11,
-              color: CupertinoColors.systemGrey.withValues(alpha: 0.9),
+              color: _AppPalette.textMuted.withValues(alpha: 0.95),
             ),
           ),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
         ],
       ),
     );
@@ -539,16 +604,17 @@ class _ReorderHandle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 34,
-      height: 34,
+      width: 32,
+      height: 32,
       decoration: BoxDecoration(
-        color: CupertinoColors.systemGrey.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(12),
+        color: _AppPalette.card,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: _AppPalette.border),
       ),
       child: const Icon(
         CupertinoIcons.line_horizontal_3,
-        size: 18,
-        color: CupertinoColors.systemGrey2,
+        size: 17,
+        color: _AppPalette.textMuted,
       ),
     );
   }
@@ -578,29 +644,34 @@ class QuoteGlassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final change = quote?.changePercent;
     final isUp = (change ?? 0) >= 0;
-    final trendColor = isUp
+    final trendColor = quote == null
+        ? _AppPalette.textMuted
+        : isUp
         ? CupertinoColors.systemGreen
         : CupertinoColors.systemRed;
 
     return GestureDetector(
       onTap: onTap,
       child: LiquidGlassSurface(
-        padding: const EdgeInsets.all(14),
-        tint: trendColor.withValues(alpha: isEditMode ? 0.14 : 0.08),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+        tint: isEditMode ? _AppPalette.cardElevated : _AppPalette.card,
         child: Row(
           children: [
             Container(
-              width: 44,
-              height: 44,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                color: CupertinoColors.black.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(12),
+                color: trendColor.withValues(alpha: 0.14),
               ),
               child: Icon(
-                isUp
+                quote == null
+                    ? CupertinoIcons.minus
+                    : isUp
                     ? CupertinoIcons.arrow_up_right
                     : CupertinoIcons.arrow_down_right,
                 color: trendColor,
+                size: 19,
               ),
             ),
             const SizedBox(width: 12),
@@ -611,27 +682,27 @@ class QuoteGlassCard extends StatelessWidget {
                   Text(
                     symbol,
                     style: const TextStyle(
-                      fontSize: 18,
+                      fontSize: 17,
                       fontWeight: FontWeight.w700,
+                      letterSpacing: 0.1,
                     ),
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 4),
                   Text(
                     quote == null ? 'データ取得中...' : '前日比 ${_signed(change!)}%',
                     style: TextStyle(
-                      color: quote == null
-                          ? CupertinoColors.systemGrey
-                          : trendColor,
+                      color: trendColor,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                   if (isEditMode)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 3),
                       child: Text(
                         'ドラッグして並び替え',
                         style: TextStyle(
                           fontSize: 11,
-                          color: CupertinoColors.systemGrey,
+                          color: _AppPalette.textMuted.withValues(alpha: 0.9),
                         ),
                       ),
                     ),
@@ -639,20 +710,38 @@ class QuoteGlassCard extends StatelessWidget {
               ),
             ),
             if (quote != null)
-              Text(
-                quote!.price.toStringAsFixed(2),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    quote!.price.toStringAsFixed(2),
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    '${_signed(change!)}%',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: trendColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              )
+            else
+              const Text(
+                '--',
+                style: TextStyle(fontSize: 18, color: _AppPalette.textMuted),
               ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             CupertinoButton(
               padding: EdgeInsets.zero,
               onPressed: onRemove,
-              child: const Icon(
+              child: Icon(
                 CupertinoIcons.minus_circle_fill,
-                color: CupertinoColors.systemGrey,
+                color: _AppPalette.textMuted.withValues(alpha: 0.92),
               ),
             ),
             if (showDragHandle) ...[const SizedBox(width: 4), dragHandle!],
@@ -737,9 +826,7 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                       width: 42,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: CupertinoColors.systemGrey.withValues(
-                          alpha: 0.6,
-                        ),
+                        color: _AppPalette.textMuted.withValues(alpha: 0.45),
                         borderRadius: BorderRadius.circular(50),
                       ),
                     ),
@@ -747,7 +834,11 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                   const SizedBox(height: 16),
                   const Text(
                     '銘柄を検索',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -759,7 +850,19 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                           onSubmitted: (_) => unawaited(_search()),
                           prefix: const Padding(
                             padding: EdgeInsets.only(left: 8),
-                            child: Icon(CupertinoIcons.search),
+                            child: Icon(
+                              CupertinoIcons.search,
+                              color: _AppPalette.textMuted,
+                            ),
+                          ),
+                          style: const TextStyle(color: CupertinoColors.white),
+                          placeholderStyle: const TextStyle(
+                            color: _AppPalette.textMuted,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _AppPalette.card,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: _AppPalette.border),
                           ),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
@@ -768,9 +871,16 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                         ),
                       ),
                       const SizedBox(width: 10),
-                      CupertinoButton.filled(
+                      CupertinoButton(
+                        color: _AppPalette.accent.withValues(alpha: 0.2),
                         onPressed: _loading ? null : () => unawaited(_search()),
-                        child: const Text('検索'),
+                        child: const Text(
+                          '検索',
+                          style: TextStyle(
+                            color: _AppPalette.accent,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -795,9 +905,7 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                               itemCount: _results.length,
                               separatorBuilder: (context, index) => Container(
                                 height: 1,
-                                color: CupertinoColors.systemGrey.withValues(
-                                  alpha: 0.25,
-                                ),
+                                color: _AppPalette.border,
                               ),
                               itemBuilder: (_, index) {
                                 final item = _results[index];
@@ -825,9 +933,8 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                                             Text(
                                               '${item.name} • ${item.exchange}',
                                               style: TextStyle(
-                                                color: CupertinoColors
-                                                    .systemGrey
-                                                    .withValues(alpha: 0.9),
+                                                color: _AppPalette.textMuted
+                                                    .withValues(alpha: 0.95),
                                               ),
                                             ),
                                           ],
@@ -835,7 +942,7 @@ class _AddSymbolSheetState extends State<AddSymbolSheet> {
                                       ),
                                       const Icon(
                                         CupertinoIcons.add_circled,
-                                        color: CupertinoColors.systemBlue,
+                                        color: _AppPalette.accent,
                                       ),
                                     ],
                                   ),
@@ -940,6 +1047,7 @@ class _CandleChartScreenState extends State<CandleChartScreen> {
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
+        backgroundColor: _AppPalette.backgroundBottom.withValues(alpha: 0.88),
         middle: Text('${widget.symbol} • ${_selectedPreset.label}'),
         previousPageTitle: '戻る',
       ),
@@ -955,7 +1063,8 @@ class _CandleChartScreenState extends State<CandleChartScreen> {
                   Text(
                     _selectedPreset.description,
                     style: TextStyle(
-                      color: CupertinoColors.systemGrey.withValues(alpha: 0.92),
+                      color: _AppPalette.textMuted.withValues(alpha: 0.95),
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -975,16 +1084,14 @@ class _CandleChartScreenState extends State<CandleChartScreen> {
                                 vertical: 10,
                               ),
                               tint: selected
-                                  ? CupertinoColors.systemBlue.withValues(
-                                      alpha: 0.2,
-                                    )
-                                  : null,
+                                  ? _AppPalette.accent.withValues(alpha: 0.18)
+                                  : _AppPalette.card,
                               child: Text(
                                 preset.label,
                                 style: TextStyle(
                                   fontWeight: FontWeight.w600,
                                   color: selected
-                                      ? CupertinoColors.systemBlue
+                                      ? _AppPalette.accent
                                       : CupertinoColors.white,
                                 ),
                               ),
@@ -1057,37 +1164,21 @@ class LiquidGlassSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(22),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                (tint ?? CupertinoColors.white).withValues(alpha: 0.22),
-                const Color(0xFF28344A).withValues(alpha: 0.35),
-              ],
-            ),
-            border: Border.all(
-              color: CupertinoColors.white.withValues(alpha: 0.18),
-              width: 1,
-            ),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: CupertinoColors.black.withValues(alpha: 0.25),
-                blurRadius: 24,
-                offset: const Offset(0, 10),
-              ),
-            ],
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: (tint ?? _AppPalette.card).withValues(alpha: 0.9),
+        border: Border.all(color: _AppPalette.border, width: 1),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: CupertinoColors.black.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
-          child: child,
-        ),
+        ],
       ),
+      child: child,
     );
   }
 }
@@ -1100,50 +1191,48 @@ class _LiquidBackground extends StatelessWidget {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF080C18), Color(0xFF0D162A), Color(0xFF121A2D)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [_AppPalette.backgroundTop, _AppPalette.backgroundBottom],
         ),
       ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -120,
-            right: -70,
-            child: _orb(const Color(0xFF4CC9F0), 280),
-          ),
-          Positioned(
-            top: 180,
-            left: -100,
-            child: _orb(const Color(0xFF4895EF), 260),
-          ),
-          Positioned(
-            bottom: -110,
-            right: 40,
-            child: _orb(const Color(0xFF3A0CA3), 230),
-          ),
-        ],
+      child: CustomPaint(
+        painter: const _GridPatternPainter(),
+        child: const SizedBox.expand(),
       ),
     );
   }
+}
 
-  Widget _orb(Color color, double size) {
-    return IgnorePointer(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: RadialGradient(
-            colors: [
-              color.withValues(alpha: 0.52),
-              color.withValues(alpha: 0.05),
-              Colors.transparent,
-            ],
-          ),
-        ),
-      ),
+class _GridPatternPainter extends CustomPainter {
+  const _GridPatternPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final linePaint = Paint()
+      ..color = CupertinoColors.white.withValues(alpha: 0.03)
+      ..strokeWidth = 1;
+
+    const step = 46.0;
+    for (double y = 0; y <= size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
+    }
+
+    final glowRect = Rect.fromCircle(
+      center: Offset(size.width * 0.82, -40),
+      radius: 220,
     );
+    final glowPaint = Paint()
+      ..shader = ui.Gradient.radial(glowRect.center, glowRect.width / 2, [
+        _AppPalette.accent.withValues(alpha: 0.2),
+        Colors.transparent,
+      ]);
+    canvas.drawCircle(glowRect.center, glowRect.width / 2, glowPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return false;
   }
 }
 
@@ -1197,7 +1286,7 @@ class CandlestickPainter extends CustomPainter {
     final range = max(maxPrice - minPrice, 0.0001);
 
     final gridPaint = Paint()
-      ..color = CupertinoColors.systemGrey.withValues(alpha: 0.2)
+      ..color = _AppPalette.textMuted.withValues(alpha: 0.26)
       ..strokeWidth = 1;
 
     for (var i = 0; i <= 5; i++) {
@@ -1214,7 +1303,7 @@ class CandlestickPainter extends CustomPainter {
         canvas,
         text: price.toStringAsFixed(price >= 100 ? 1 : 2),
         offset: Offset(4, y - 8),
-        color: CupertinoColors.systemGrey.withValues(alpha: 0.95),
+        color: _AppPalette.textMuted.withValues(alpha: 0.92),
         fontSize: 10,
       );
     }
@@ -1238,7 +1327,7 @@ class CandlestickPainter extends CustomPainter {
         canvas,
         text: label,
         offset: Offset(x - 20, plotRect.bottom + 8),
-        color: CupertinoColors.systemGrey.withValues(alpha: 0.95),
+        color: _AppPalette.textMuted.withValues(alpha: 0.92),
         fontSize: 10,
       );
     }
