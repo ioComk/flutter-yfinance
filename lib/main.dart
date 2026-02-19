@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -15,11 +16,13 @@ class StockApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'YFinance Dashboard',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
+    return CupertinoApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Liquid Stocks',
+      theme: const CupertinoThemeData(
+        brightness: Brightness.dark,
+        primaryColor: CupertinoColors.systemBlue,
+        scaffoldBackgroundColor: Color(0xFF090E19),
       ),
       home: const DashboardScreen(),
     );
@@ -40,6 +43,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _refreshTimer;
   bool _loading = true;
   String? _error;
+  DateTime? _lastUpdatedAt;
 
   @override
   void initState() {
@@ -76,6 +80,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ..clear()
           ..addAll(next);
         _loading = false;
+        _lastUpdatedAt = DateTime.now();
       });
     } catch (e) {
       if (!mounted) {
@@ -88,17 +93,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _openAddDialog() async {
-    final added = await showDialog<String>(
+  Future<void> _openAddSheet() async {
+    final added = await showCupertinoModalPopup<String>(
       context: context,
-      builder: (context) => AddSymbolDialog(service: _service),
+      builder: (context) => AddSymbolSheet(service: _service),
     );
 
-    if (added == null || added.isEmpty) {
-      return;
-    }
-
-    if (_watchlist.contains(added)) {
+    if (added == null || added.isEmpty || _watchlist.contains(added)) {
       return;
     }
 
@@ -117,76 +118,217 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Stocks Dashboard'),
-        actions: [
-          IconButton(
-            onPressed: _loading ? null : () => unawaited(_refreshAll()),
-            icon: const Icon(Icons.refresh),
+    return CupertinoPageScaffold(
+      child: Stack(
+        children: [
+          const _LiquidBackground(),
+          SafeArea(
+            child: CustomScrollView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              slivers: [
+                CupertinoSliverRefreshControl(onRefresh: _refreshAll),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                    child: _TopHeader(
+                      itemCount: _watchlist.length,
+                      lastUpdatedAt: _lastUpdatedAt,
+                      loading: _loading,
+                      onRefresh: () => unawaited(_refreshAll()),
+                    ),
+                  ),
+                ),
+                if (_error != null)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                      child: LiquidGlassSurface(
+                        tint: CupertinoColors.systemRed.withValues(alpha: 0.2),
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(
+                            color: CupertinoColors.systemRed,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (_loading && _quotes.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: CupertinoActivityIndicator(radius: 16),
+                    ),
+                  )
+                else if (_watchlist.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: Center(
+                      child: Text(
+                        '銘柄を追加してください',
+                        style: TextStyle(color: CupertinoColors.systemGrey),
+                      ),
+                    ),
+                  )
+                else
+                  SliverList.builder(
+                    itemCount: _watchlist.length,
+                    itemBuilder: (context, index) {
+                      final symbol = _watchlist[index];
+                      final quote = _quotes[symbol];
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        child: QuoteGlassCard(
+                          symbol: symbol,
+                          quote: quote,
+                          onRemove: () => _removeSymbol(symbol),
+                          onTap: quote == null
+                              ? null
+                              : () {
+                                  Navigator.of(context).push(
+                                    CupertinoPageRoute<void>(
+                                      builder: (_) => CandleChartScreen(
+                                        symbol: quote.symbol,
+                                        service: _service,
+                                      ),
+                                    ),
+                                  );
+                                },
+                        ),
+                      );
+                    },
+                  ),
+                const SliverToBoxAdapter(child: SizedBox(height: 84)),
+              ],
+            ),
           ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openAddDialog,
-        icon: const Icon(Icons.add),
-        label: const Text('銘柄追加'),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refreshAll,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Text('1分ごとに自動更新', style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 12),
-            if (_error != null)
-              Card(
-                color: Theme.of(context).colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(_error!),
+          Positioned(
+            left: 16,
+            right: 16,
+            bottom: 24,
+            child: SafeArea(
+              top: false,
+              child: GestureDetector(
+                onTap: _openAddSheet,
+                child: const LiquidGlassSurface(
+                  padding: EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(CupertinoIcons.add_circled_solid, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        '銘柄をダッシュボードに追加',
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            if (_loading && _quotes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_watchlist.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Center(child: Text('銘柄を追加してください')),
-              )
-            else
-              ..._watchlist.map((symbol) {
-                final quote = _quotes[symbol];
-                return QuoteCard(
-                  symbol: symbol,
-                  quote: quote,
-                  onTap: quote == null
-                      ? null
-                      : () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => CandleChartScreen(
-                                symbol: quote.symbol,
-                                service: _service,
-                              ),
-                            ),
-                          );
-                        },
-                  onRemove: () => _removeSymbol(symbol),
-                );
-              }),
-          ],
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class QuoteCard extends StatelessWidget {
-  const QuoteCard({
+class _TopHeader extends StatelessWidget {
+  const _TopHeader({
+    required this.itemCount,
+    required this.lastUpdatedAt,
+    required this.loading,
+    required this.onRefresh,
+  });
+
+  final int itemCount;
+  final DateTime? lastUpdatedAt;
+  final bool loading;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final updatedText = lastUpdatedAt == null
+        ? '未更新'
+        : '${lastUpdatedAt!.hour.toString().padLeft(2, '0')}:${lastUpdatedAt!.minute.toString().padLeft(2, '0')}';
+
+    return LiquidGlassSurface(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Liquid Stocks',
+            style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'iOS First Dashboard • 1分自動更新',
+            style: TextStyle(
+              color: CupertinoColors.systemGrey.withValues(alpha: 0.8),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _StatPill(label: '銘柄数', value: '$itemCount'),
+              const SizedBox(width: 10),
+              _StatPill(label: '最終更新', value: updatedText),
+              const Spacer(),
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                color: CupertinoColors.systemBlue.withValues(alpha: 0.25),
+                onPressed: loading ? null : onRefresh,
+                child: loading
+                    ? const CupertinoActivityIndicator()
+                    : const Icon(CupertinoIcons.refresh, size: 18),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatPill extends StatelessWidget {
+  const _StatPill({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: CupertinoColors.systemGrey.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: CupertinoColors.systemGrey.withValues(alpha: 0.9),
+            ),
+          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
+class QuoteGlassCard extends StatelessWidget {
+  const QuoteGlassCard({
     required this.symbol,
     required this.quote,
     required this.onRemove,
@@ -201,27 +343,73 @@ class QuoteCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isUp = (quote?.changePercent ?? 0) >= 0;
-    final color = isUp ? Colors.green : Colors.red;
+    final change = quote?.changePercent;
+    final isUp = (change ?? 0) >= 0;
+    final trendColor = isUp
+        ? CupertinoColors.systemGreen
+        : CupertinoColors.systemRed;
 
-    return Card(
-      child: ListTile(
-        onTap: onTap,
-        title: Text(symbol),
-        subtitle: quote == null
-            ? const Text('読み込み中...')
-            : Text('前日比 ${_signed(quote!.changePercent)}%'),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
+    return GestureDetector(
+      onTap: onTap,
+      child: LiquidGlassSurface(
+        padding: const EdgeInsets.all(14),
+        tint: trendColor.withValues(alpha: 0.08),
+        child: Row(
           children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: CupertinoColors.black.withValues(alpha: 0.3),
+              ),
+              child: Icon(
+                isUp
+                    ? CupertinoIcons.arrow_up_right
+                    : CupertinoIcons.arrow_down_right,
+                color: trendColor,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    symbol,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    quote == null ? 'データ取得中...' : '前日比 ${_signed(change!)}%',
+                    style: TextStyle(
+                      color: quote == null
+                          ? CupertinoColors.systemGrey
+                          : trendColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
             if (quote != null)
               Text(
                 quote!.price.toStringAsFixed(2),
-                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            IconButton(
+            const SizedBox(width: 10),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
               onPressed: onRemove,
-              icon: const Icon(CupertinoIcons.minus_circle),
+              child: const Icon(
+                CupertinoIcons.minus_circle_fill,
+                color: CupertinoColors.systemGrey,
+              ),
             ),
           ],
         ),
@@ -230,16 +418,16 @@ class QuoteCard extends StatelessWidget {
   }
 }
 
-class AddSymbolDialog extends StatefulWidget {
-  const AddSymbolDialog({required this.service, super.key});
+class AddSymbolSheet extends StatefulWidget {
+  const AddSymbolSheet({required this.service, super.key});
 
   final YahooFinanceService service;
 
   @override
-  State<AddSymbolDialog> createState() => _AddSymbolDialogState();
+  State<AddSymbolSheet> createState() => _AddSymbolSheetState();
 }
 
-class _AddSymbolDialogState extends State<AddSymbolDialog> {
+class _AddSymbolSheetState extends State<AddSymbolSheet> {
   final TextEditingController _controller = TextEditingController();
   final List<SymbolResult> _results = <SymbolResult>[];
   bool _loading = false;
@@ -286,62 +474,137 @@ class _AddSymbolDialogState extends State<AddSymbolDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('銘柄を検索'),
-      content: SizedBox(
-        width: 420,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.82,
+        child: Stack(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => unawaited(_search()),
-                    decoration: const InputDecoration(
-                      hintText: '例: AAPL / Tesla',
+            const _LiquidBackground(),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey.withValues(
+                          alpha: 0.6,
+                        ),
+                        borderRadius: BorderRadius.circular(50),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: _loading ? null : () => unawaited(_search()),
-                  child: const Text('検索'),
-                ),
-              ],
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!, style: const TextStyle(color: Colors.red)),
-            ],
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 280,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView.builder(
-                      itemCount: _results.length,
-                      itemBuilder: (_, index) {
-                        final item = _results[index];
-                        return ListTile(
-                          title: Text(item.symbol),
-                          subtitle: Text('${item.name} (${item.exchange})'),
-                          onTap: () => Navigator.of(context).pop(item.symbol),
-                        );
-                      },
+                  const SizedBox(height: 16),
+                  const Text(
+                    '銘柄を検索',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CupertinoTextField(
+                          controller: _controller,
+                          placeholder: '例: AAPL / Tesla',
+                          onSubmitted: (_) => unawaited(_search()),
+                          prefix: const Padding(
+                            padding: EdgeInsets.only(left: 8),
+                            child: Icon(CupertinoIcons.search),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      CupertinoButton.filled(
+                        onPressed: _loading ? null : () => unawaited(_search()),
+                        child: const Text('検索'),
+                      ),
+                    ],
+                  ),
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemRed,
+                        ),
+                      ),
                     ),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: LiquidGlassSurface(
+                      child: _loading
+                          ? const Center(
+                              child: CupertinoActivityIndicator(radius: 14),
+                            )
+                          : ListView.separated(
+                              itemCount: _results.length,
+                              separatorBuilder: (context, index) => Container(
+                                height: 1,
+                                color: CupertinoColors.systemGrey.withValues(
+                                  alpha: 0.25,
+                                ),
+                              ),
+                              itemBuilder: (_, index) {
+                                final item = _results[index];
+                                return CupertinoButton(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(item.symbol),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              item.symbol,
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                                color: CupertinoColors.white,
+                                              ),
+                                            ),
+                                            Text(
+                                              '${item.name} • ${item.exchange}',
+                                              style: TextStyle(
+                                                color: CupertinoColors
+                                                    .systemGrey
+                                                    .withValues(alpha: 0.9),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        CupertinoIcons.add_circled,
+                                        color: CupertinoColors.systemBlue,
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('閉じる'),
-        ),
-      ],
     );
   }
 }
@@ -363,6 +626,9 @@ class CandleChartScreen extends StatefulWidget {
 class _CandleChartScreenState extends State<CandleChartScreen> {
   final List<Candle> _candles = <Candle>[];
   Timer? _timer;
+  ChartRangePreset _selectedPreset = ChartRangePreset.oneMinute;
+  double _zoomX = 1.0;
+  double _scaleStartZoom = 1.0;
   bool _loading = true;
   String? _error;
 
@@ -383,7 +649,10 @@ class _CandleChartScreenState extends State<CandleChartScreen> {
 
   Future<void> _loadCandles() async {
     try {
-      final candles = await widget.service.fetchCandles(widget.symbol);
+      final candles = await widget.service.fetchCandles(
+        widget.symbol,
+        _selectedPreset,
+      );
       if (!mounted) {
         return;
       }
@@ -405,45 +674,228 @@ class _CandleChartScreenState extends State<CandleChartScreen> {
     }
   }
 
+  Future<void> _onPresetChanged(ChartRangePreset preset) async {
+    if (_selectedPreset == preset) {
+      return;
+    }
+    setState(() {
+      _selectedPreset = preset;
+      _loading = true;
+      _error = null;
+      _zoomX = 1.0;
+    });
+    await _loadCandles();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final chartWidth = max(
-      MediaQuery.of(context).size.width,
-      _candles.length * 10,
-    );
+    final viewportWidth = MediaQuery.of(context).size.width - 44;
+    final baseChartWidth = max(viewportWidth, _candles.length * 11);
+    final chartWidth = baseChartWidth * _zoomX;
 
-    return Scaffold(
-      appBar: AppBar(title: Text('${widget.symbol} 1m Candles')),
-      body: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('1日分の1分足を表示', style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 12),
-            if (_loading)
-              const Expanded(child: Center(child: CircularProgressIndicator()))
-            else if (_error != null)
-              Expanded(child: Center(child: Text(_error!)))
-            else if (_candles.isEmpty)
-              const Expanded(child: Center(child: Text('データなし')))
-            else
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: chartWidth.toDouble(),
-                    height: double.infinity,
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: CandlestickChart(candles: _candles),
-                      ),
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: Text('${widget.symbol} • ${_selectedPreset.label}'),
+        previousPageTitle: '戻る',
+      ),
+      child: Stack(
+        children: [
+          const _LiquidBackground(),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 56, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _selectedPreset.description,
+                    style: TextStyle(
+                      color: CupertinoColors.systemGrey.withValues(alpha: 0.92),
                     ),
                   ),
-                ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 42,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: ChartRangePreset.values.map((preset) {
+                        final selected = _selectedPreset == preset;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: GestureDetector(
+                            onTap: () => unawaited(_onPresetChanged(preset)),
+                            child: LiquidGlassSurface(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              tint: selected
+                                  ? CupertinoColors.systemBlue.withValues(
+                                      alpha: 0.2,
+                                    )
+                                  : null,
+                              child: Text(
+                                preset.label,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: selected
+                                      ? CupertinoColors.systemBlue
+                                      : CupertinoColors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: LiquidGlassSurface(
+                      padding: const EdgeInsets.all(10),
+                      child: _loading
+                          ? const Center(
+                              child: CupertinoActivityIndicator(radius: 14),
+                            )
+                          : _error != null
+                          ? Center(child: Text(_error!))
+                          : _candles.isEmpty
+                          ? const Center(child: Text('データなし'))
+                          : GestureDetector(
+                              onScaleStart: (details) {
+                                _scaleStartZoom = _zoomX;
+                              },
+                              onScaleUpdate: (details) {
+                                if (details.pointerCount < 2) {
+                                  return;
+                                }
+                                setState(() {
+                                  _zoomX = (_scaleStartZoom * details.scale)
+                                      .clamp(1.0, 8.0);
+                                });
+                              },
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: SizedBox(
+                                  width: chartWidth.toDouble(),
+                                  height: double.infinity,
+                                  child: CandlestickChart(
+                                    candles: _candles,
+                                    preset: _selectedPreset,
+                                  ),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
               ),
-          ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class LiquidGlassSurface extends StatelessWidget {
+  const LiquidGlassSurface({
+    required this.child,
+    this.padding = const EdgeInsets.all(12),
+    this.tint,
+    super.key,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final Color? tint;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                (tint ?? CupertinoColors.white).withValues(alpha: 0.22),
+                const Color(0xFF28344A).withValues(alpha: 0.35),
+              ],
+            ),
+            border: Border.all(
+              color: CupertinoColors.white.withValues(alpha: 0.18),
+              width: 1,
+            ),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: CupertinoColors.black.withValues(alpha: 0.25),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _LiquidBackground extends StatelessWidget {
+  const _LiquidBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF080C18), Color(0xFF0D162A), Color(0xFF121A2D)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -120,
+            right: -70,
+            child: _orb(const Color(0xFF4CC9F0), 280),
+          ),
+          Positioned(
+            top: 180,
+            left: -100,
+            child: _orb(const Color(0xFF4895EF), 260),
+          ),
+          Positioned(
+            bottom: -110,
+            right: 40,
+            child: _orb(const Color(0xFF3A0CA3), 230),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _orb(Color color, double size) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [
+              color.withValues(alpha: 0.52),
+              color.withValues(alpha: 0.05),
+              Colors.transparent,
+            ],
+          ),
         ),
       ),
     );
@@ -451,27 +903,47 @@ class _CandleChartScreenState extends State<CandleChartScreen> {
 }
 
 class CandlestickChart extends StatelessWidget {
-  const CandlestickChart({required this.candles, super.key});
+  const CandlestickChart({
+    required this.candles,
+    required this.preset,
+    super.key,
+  });
 
   final List<Candle> candles;
+  final ChartRangePreset preset;
 
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: CandlestickPainter(candles),
+      painter: CandlestickPainter(candles: candles, preset: preset),
       size: Size.infinite,
     );
   }
 }
 
 class CandlestickPainter extends CustomPainter {
-  CandlestickPainter(this.candles);
+  CandlestickPainter({required this.candles, required this.preset});
 
   final List<Candle> candles;
+  final ChartRangePreset preset;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (candles.isEmpty || size.isEmpty) {
+      return;
+    }
+
+    const leftPad = 56.0;
+    const rightPad = 12.0;
+    const topPad = 8.0;
+    const bottomPad = 28.0;
+    final plotRect = Rect.fromLTWH(
+      leftPad,
+      topPad,
+      max(0, size.width - leftPad - rightPad),
+      max(0, size.height - topPad - bottomPad),
+    );
+    if (plotRect.width <= 0 || plotRect.height <= 0) {
       return;
     }
 
@@ -480,28 +952,68 @@ class CandlestickPainter extends CustomPainter {
     final range = max(maxPrice - minPrice, 0.0001);
 
     final gridPaint = Paint()
-      ..color = Colors.grey.withValues(alpha: 0.15)
+      ..color = CupertinoColors.systemGrey.withValues(alpha: 0.2)
       ..strokeWidth = 1;
 
-    for (var i = 0; i <= 4; i++) {
-      final y = size.height * (i / 4);
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    for (var i = 0; i <= 5; i++) {
+      final ratio = i / 5;
+      final y = plotRect.top + plotRect.height * ratio;
+      canvas.drawLine(
+        Offset(plotRect.left, y),
+        Offset(plotRect.right, y),
+        gridPaint,
+      );
+
+      final price = maxPrice - range * ratio;
+      _drawText(
+        canvas,
+        text: price.toStringAsFixed(price >= 100 ? 1 : 2),
+        offset: Offset(4, y - 8),
+        color: CupertinoColors.systemGrey.withValues(alpha: 0.95),
+        fontSize: 10,
+      );
     }
 
-    final candleWidth = size.width / candles.length;
-    final bodyWidth = max(2.0, candleWidth * 0.65);
+    final xGridCount = min(6, max(2, candles.length ~/ 20));
+    for (var i = 0; i <= xGridCount; i++) {
+      final ratio = i / xGridCount;
+      final x = plotRect.left + plotRect.width * ratio;
+      canvas.drawLine(
+        Offset(x, plotRect.top),
+        Offset(x, plotRect.bottom),
+        gridPaint,
+      );
+
+      final candleIndex = min(
+        candles.length - 1,
+        (ratio * (candles.length - 1)).round(),
+      );
+      final label = _formatXLabel(candles[candleIndex].time, preset);
+      _drawText(
+        canvas,
+        text: label,
+        offset: Offset(x - 20, plotRect.bottom + 8),
+        color: CupertinoColors.systemGrey.withValues(alpha: 0.95),
+        fontSize: 10,
+      );
+    }
+
+    final candleWidth = plotRect.width / candles.length;
+    final bodyWidth = max(2.0, candleWidth * 0.62);
 
     for (var i = 0; i < candles.length; i++) {
       final c = candles[i];
-      final x = (i + 0.5) * candleWidth;
+      final x = plotRect.left + (i + 0.5) * candleWidth;
 
-      final highY = _priceToY(c.high, minPrice, range, size.height);
-      final lowY = _priceToY(c.low, minPrice, range, size.height);
-      final openY = _priceToY(c.open, minPrice, range, size.height);
-      final closeY = _priceToY(c.close, minPrice, range, size.height);
+      final highY = _priceToY(c.high, minPrice, range, plotRect);
+      final lowY = _priceToY(c.low, minPrice, range, plotRect);
+      final openY = _priceToY(c.open, minPrice, range, plotRect);
+      final closeY = _priceToY(c.close, minPrice, range, plotRect);
 
       final up = c.close >= c.open;
-      final color = up ? Colors.green : Colors.red;
+      final color = up
+          ? CupertinoColors.systemGreen
+          : CupertinoColors.systemRed;
 
       final wickPaint = Paint()
         ..color = color
@@ -514,10 +1026,11 @@ class CandlestickPainter extends CustomPainter {
         x - bodyWidth / 2,
         bodyTop,
         x + bodyWidth / 2,
-        max(bodyBottom, bodyTop + 1.2),
+        max(bodyBottom, bodyTop + 1.3),
       );
-      canvas.drawRect(
-        rect,
+
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(1.4)),
         Paint()
           ..color = color
           ..style = PaintingStyle.fill,
@@ -526,12 +1039,54 @@ class CandlestickPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CandlestickPainter oldDelegate) =>
-      oldDelegate.candles != candles;
+  bool shouldRepaint(covariant CandlestickPainter oldDelegate) {
+    return oldDelegate.candles != candles || oldDelegate.preset != preset;
+  }
 
-  double _priceToY(double price, double minPrice, double range, double height) {
+  double _priceToY(double price, double minPrice, double range, Rect plotRect) {
     final normalized = (price - minPrice) / range;
-    return height - (normalized * height);
+    return plotRect.bottom - (normalized * plotRect.height);
+  }
+
+  String _formatXLabel(DateTime time, ChartRangePreset preset) {
+    switch (preset) {
+      case ChartRangePreset.oneMinute:
+      case ChartRangePreset.fiveMinutes:
+      case ChartRangePreset.fifteenMinutes:
+      case ChartRangePreset.thirtyMinutes:
+      case ChartRangePreset.oneHour:
+      case ChartRangePreset.twelveHours:
+        return '${time.month}/${time.day} ${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+      case ChartRangePreset.oneDay:
+      case ChartRangePreset.threeDays:
+      case ChartRangePreset.oneWeek:
+        return '${time.year % 100}/${time.month.toString().padLeft(2, '0')}/${time.day.toString().padLeft(2, '0')}';
+      case ChartRangePreset.oneMonth:
+      case ChartRangePreset.oneYear:
+        return '${time.year}/${time.month.toString().padLeft(2, '0')}';
+    }
+  }
+
+  void _drawText(
+    Canvas canvas, {
+    required String text,
+    required Offset offset,
+    required Color color,
+    required double fontSize,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    painter.paint(canvas, offset);
   }
 }
 
@@ -599,9 +1154,12 @@ class YahooFinanceService {
     );
   }
 
-  Future<List<Candle>> fetchCandles(String symbol) async {
+  Future<List<Candle>> fetchCandles(
+    String symbol,
+    ChartRangePreset preset,
+  ) async {
     final uri = Uri.parse(
-      '$_base/v8/finance/chart/$symbol?interval=1m&range=1d',
+      '$_base/v8/finance/chart/$symbol?interval=${preset.apiInterval}&range=${preset.apiRange}',
     );
 
     final res = await http.get(uri);
@@ -661,7 +1219,167 @@ class YahooFinanceService {
       );
     }
 
-    return candles;
+    return _aggregateCandles(candles, preset.groupSize);
+  }
+
+  List<Candle> _aggregateCandles(List<Candle> candles, int groupSize) {
+    if (groupSize <= 1 || candles.isEmpty) {
+      return candles;
+    }
+
+    final aggregated = <Candle>[];
+    for (var i = 0; i < candles.length; i += groupSize) {
+      final end = min(i + groupSize, candles.length);
+      final chunk = candles.sublist(i, end);
+      aggregated.add(
+        Candle(
+          time: chunk.first.time,
+          open: chunk.first.open,
+          high: chunk.map((e) => e.high).reduce(max),
+          low: chunk.map((e) => e.low).reduce(min),
+          close: chunk.last.close,
+        ),
+      );
+    }
+    return aggregated;
+  }
+}
+
+enum ChartRangePreset {
+  oneMinute,
+  fiveMinutes,
+  fifteenMinutes,
+  thirtyMinutes,
+  oneHour,
+  twelveHours,
+  oneDay,
+  threeDays,
+  oneWeek,
+  oneMonth,
+  oneYear,
+}
+
+extension ChartRangePresetX on ChartRangePreset {
+  String get label {
+    switch (this) {
+      case ChartRangePreset.oneMinute:
+        return '1分足';
+      case ChartRangePreset.fiveMinutes:
+        return '5分足';
+      case ChartRangePreset.fifteenMinutes:
+        return '15分足';
+      case ChartRangePreset.thirtyMinutes:
+        return '30分足';
+      case ChartRangePreset.oneHour:
+        return '1時間';
+      case ChartRangePreset.twelveHours:
+        return '12時間';
+      case ChartRangePreset.oneDay:
+        return '1日';
+      case ChartRangePreset.threeDays:
+        return '3日';
+      case ChartRangePreset.oneWeek:
+        return '1週間';
+      case ChartRangePreset.oneMonth:
+        return '1ヶ月';
+      case ChartRangePreset.oneYear:
+        return '1年';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case ChartRangePreset.oneMinute:
+        return '1日分を1分足で表示';
+      case ChartRangePreset.fiveMinutes:
+        return '5日分を5分足で表示';
+      case ChartRangePreset.fifteenMinutes:
+        return '1ヶ月分を15分足で表示';
+      case ChartRangePreset.thirtyMinutes:
+        return '1ヶ月分を30分足で表示';
+      case ChartRangePreset.oneHour:
+        return '3ヶ月分を1時間足で表示';
+      case ChartRangePreset.twelveHours:
+        return '1年分を12時間足で表示';
+      case ChartRangePreset.oneDay:
+        return '5年分を1日足で表示';
+      case ChartRangePreset.threeDays:
+        return '10年分を3日足で表示';
+      case ChartRangePreset.oneWeek:
+        return '最大期間を週足で表示';
+      case ChartRangePreset.oneMonth:
+        return '最大期間を月足で表示';
+      case ChartRangePreset.oneYear:
+        return '最大期間を年足で表示';
+    }
+  }
+
+  String get apiInterval {
+    switch (this) {
+      case ChartRangePreset.oneMinute:
+        return '1m';
+      case ChartRangePreset.fiveMinutes:
+        return '5m';
+      case ChartRangePreset.fifteenMinutes:
+        return '15m';
+      case ChartRangePreset.thirtyMinutes:
+        return '30m';
+      case ChartRangePreset.oneHour:
+      case ChartRangePreset.twelveHours:
+        return '60m';
+      case ChartRangePreset.oneDay:
+      case ChartRangePreset.threeDays:
+        return '1d';
+      case ChartRangePreset.oneWeek:
+        return '1wk';
+      case ChartRangePreset.oneMonth:
+      case ChartRangePreset.oneYear:
+        return '1mo';
+    }
+  }
+
+  String get apiRange {
+    switch (this) {
+      case ChartRangePreset.oneMinute:
+        return '1d';
+      case ChartRangePreset.fiveMinutes:
+        return '5d';
+      case ChartRangePreset.fifteenMinutes:
+      case ChartRangePreset.thirtyMinutes:
+        return '1mo';
+      case ChartRangePreset.oneHour:
+        return '3mo';
+      case ChartRangePreset.twelveHours:
+        return '1y';
+      case ChartRangePreset.oneDay:
+        return '5y';
+      case ChartRangePreset.threeDays:
+        return '10y';
+      case ChartRangePreset.oneWeek:
+      case ChartRangePreset.oneMonth:
+      case ChartRangePreset.oneYear:
+        return 'max';
+    }
+  }
+
+  int get groupSize {
+    switch (this) {
+      case ChartRangePreset.twelveHours:
+        return 12;
+      case ChartRangePreset.threeDays:
+        return 3;
+      case ChartRangePreset.oneYear:
+        return 12;
+      case ChartRangePreset.oneMinute:
+      case ChartRangePreset.fiveMinutes:
+      case ChartRangePreset.fifteenMinutes:
+      case ChartRangePreset.thirtyMinutes:
+      case ChartRangePreset.oneHour:
+      case ChartRangePreset.oneDay:
+      case ChartRangePreset.oneWeek:
+      case ChartRangePreset.oneMonth:
+        return 1;
+    }
   }
 }
 
